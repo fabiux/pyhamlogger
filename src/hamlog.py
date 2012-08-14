@@ -177,9 +177,9 @@ class Hamlog():
         @return: False if error
         """
         sql = []
-        sql.append("DELETE FROM logs WHERE id = " + str(logid))
-        sql.append("DELETE FROM qso WHERE id_log = " + str(logid))
-        sql.append("DELETE FROM qsoadif WHERE id_log = " + str(logid))
-        sql.append("DELETE FROM qsoprops WHERE id_log = " + str(logid))
-        sql.append("DELETE FROM qsl WHERE id_log = " + str(logid))
-        return self._doQuery(sql)
+        sql.append("DELETE FROM logs WHERE id = :logid")
+        sql.append("DELETE FROM qso WHERE id_log = :logid")
+        sql.append("DELETE FROM qsoadif WHERE id_log = :logid")
+        sql.append("DELETE FROM qsoprops WHERE id_log = :logid")
+        sql.append("DELETE FROM qsl WHERE id_log = :logid")
+        return self._doQuery(sql, {'logid': str(logid)})
