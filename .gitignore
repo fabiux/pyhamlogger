@@ -25,3 +25,14 @@ pip-log.txt
 
 #Mr Developer
 .mr.developer.cfg
+
+*.swp
+_adif/
+_bin/
+_sql/
+.project
+.pydevproject
+src/wwl.py
+src/db/BACKUP.db
+src/db/default.db
+src/db/pyhamlogger_DEV.db
