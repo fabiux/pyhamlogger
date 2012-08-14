@@ -21,7 +21,8 @@ class Hamlog():
         try:
             self._conn = sqlite.connect(db)
 
-        except sqlite.Error, e:
+#        except sqlite.Error, e:
+        except:
             pass    # FIXME error reporting?
 
     def __del__(self):
@@ -50,7 +51,8 @@ class Hamlog():
                 else:
                     for stat in sql:
                         cur.execute(stat, params)
-        except sqlite.Error, e:
+#        except sqlite.Error, e:
+        except:
             return False
 
         return cur
@@ -86,6 +88,23 @@ class Hamlog():
         """
         return self._recordExists("SELECT COUNT(*) AS tot FROM qso WHERE (id_qso = :qsoid) AND (id_log = :logid)", {'qsoid': qsoid, 'logid': str(logid)})
 
+    def _qsoIsValid(self, qso):
+        """Check if a QSO is valid.
+        In order to log a QSO, some properties are required:
+        qso_date, time_on, call, freq, mode, station_callsign and my_gridsquare.
+        @param qso: the QSO to check
+        @return: True if valid
+        """
+        # FIXME station_callsign or operator ADIF fields must be present
+        if not 'station_callsign' in qso and not 'operator' in qso:
+            return False
+
+        required = ['qso_date', 'time_on', 'call', 'freq', 'mode', 'my_gridsquare']
+        for field in required:
+            if not field in qso:
+                return False
+        return True
+
     def _getQSOKey(self, qso):
         """Get primary key of QSO.
         @param qso: the QSO
@@ -117,7 +136,8 @@ class Hamlog():
 
         qsos = adif.adiParse(filename)
         for i in range(len(qsos)):
-            self.addQSO(qsos[i], logid)
+            if self._qsoIsValid(qsos[i]):
+                self.addQSO(qsos[i], logid)
         return True
 
     def exportToAdif(self, filename, logid):
@@ -142,10 +162,12 @@ class Hamlog():
         """
         # FIXME: check if QSO is valid (?)
         qso = dict((k.lower(), qso[k]) for k in qso)
+        
         pk = self._getQSOKey(qso)
         if self._qsoExists(pk, logid):
             # FIXME update QSO TODO
-            print pk
+#            print pk
+            pass
         else:
             # FIXME add new QSO
             return self._doQuery("INSERT INTO qso (id_qso, id_log) VALUES (:pk, :logid)", {'pk': pk, 'logid': str(logid)})

@@ -31,16 +31,16 @@ CREATE TABLE qsoprops (
 	id_qso CHAR(19),
 	id_log INTEGER,
 	dxcc_entity CHAR(3),
-	PRIMARY KEY (`id_qso`, `id_log`)
+	PRIMARY KEY (id_qso, id_log)
 );
 
-DROP TABLE IF EXISTS `qsl`;
-CREATE TABLE `qsl` (
+DROP TABLE IF EXISTS qsl;
+CREATE TABLE qsl (
 	id_qso CHAR(19),
 	id_log INTEGER,
 	direct INTEGER,
 	eqsl INTEGER,
 	lotw INTEGER,
 	direct_sent INTEGER,
-	PRIMARY KEY (`id_qso`, `id_log`)
+	PRIMARY KEY (id_qso, id_log)
 );
