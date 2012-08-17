@@ -21,7 +21,6 @@ class Hamlog():
         try:
             self._conn = sqlite.connect(db)
 
-#        except sqlite.Error, e:
         except:
             pass    # FIXME error reporting?
 
@@ -51,7 +50,6 @@ class Hamlog():
                 else:
                     for stat in sql:
                         cur.execute(stat, params)
-#        except sqlite.Error, e:
         except:
             return False
 
@@ -80,45 +78,115 @@ class Hamlog():
         """
         return self._recordExists("SELECT COUNT(*) AS tot FROM logs WHERE id = :logid", {'logid': str(logid)})
 
-    def _qsoExists(self, qsoid, logid):
-        """Tell if a QSO exists
-        @param qsoid: QSO id
-        @param logid: existing log id
-        @return: True if QSO exists
-        """
-        return self._recordExists("SELECT COUNT(*) AS tot FROM qso WHERE (id_qso = :qsoid) AND (id_log = :logid)", {'qsoid': qsoid, 'logid': str(logid)})
-
     def _qsoIsValid(self, qso):
         """Check if a QSO is valid.
         In order to log a QSO, some properties are required:
         qso_date, time_on, call, freq, mode, station_callsign and my_gridsquare.
         @param qso: the QSO to check
-        @return: True if valid
+        @return: True if QSO is valid
+        FIXME TODO more value checking?
         """
-        # FIXME station_callsign or operator ADIF fields must be present
         if not 'station_callsign' in qso and not 'operator' in qso:
             return False
 
-        required = ['qso_date', 'time_on', 'call', 'freq', 'mode', 'my_gridsquare']
-        for field in required:
+        for field in _config.required_adif:
             if not field in qso:
                 return False
+
         return True
+
+    def _normalizeQSO(self, qso):
+        """Do some normalization in original QSO, according to ADIF specifications (v. 2.2.7).
+        QSO must be previously checked as valid.
+        Set `operator`, `station_callsign` and `owner_callsign` ADIF values.
+        @param qso: QSO to normalize
+        @return: normalized QSO
+        FIXME TODO run test!
+        """
+        # `operator` or `station_callsign` exist
+        if not 'operator' in qso:
+            qso['operator'] = qso['station_callsign']
+        elif not 'station_callsign' in qso:
+            qso['station_callsign'] = qso['operator']
+
+        if not 'owner_callsign' in qso:
+            qso['owner_callsign'] = qso['station_callsign']
+
+        return qso
 
     def _getQSOKey(self, qso):
         """Get primary key of QSO.
         @param qso: the QSO
         @return: primary key or False if error
-        FIXME error management
         """
         try:
             pkdate = qso['qso_date']
             pktime = qso['time_on']
-        except KeyError as e:
+        except:
             return False
 
-        # add more value checking
+        # add more value checking?
         return pkdate[:4] + "-" + pkdate[4:6] + "-" + pkdate[6:8] + " " + pktime[:2] + ":" + pktime[2:4] + ":00"
+
+    def _updateAdifFields(self, qso):
+        """Update all ADIF fields for the specified QSO.
+        qso already contains non-ADIF id_qso and id_log fields.
+        @param qso: the QSO
+        @return: True if no errors
+        """
+        pk = {}
+        pk['id_qso'] = qso['id_qso']
+        pk['id_log'] = qso['id_log']
+        del(qso['id_qso'])
+        del(qso['id_log'])
+        try:
+            with self._conn:
+                self._doQuery("DELETE FROM qsoadif WHERE (id_qso = :idqso) AND (id_log = :idlog)", pk)
+                for k in qso:
+                    if not k in _config.required_adif:
+                        params = pk
+                        params['id'] = k
+                        params['description'] = qso[k]
+                        if k in _config.appdefined_adif:
+                            params['appdefined'] = 1
+                        else:
+                            params['appdefined'] = 0
+                        self._doQuery("INSERT INTO qsoadif VALUES (:id_qso, :id_log, :id, :description, :appdefined)", params)
+        except:
+            return False
+
+        return True
+
+    def addOrUpdateQSO(self, qso, logid):
+        """Add or update a QSO to a log.
+        If QSO already exists, then update its properties.
+        About related QSO tables in database:
+        - `qso`: this is the main header table which contains mandatory ADIF fields,
+        plus primary key fields;
+        - `qsoadif`: for each QSO, this table contains all related ADIF fields;
+        for application-defined fields this value must be set to 1 (True)
+        @param qso: QSO object
+        @param logid: existing log id
+        @return: False if errors
+        """
+        qso = dict((k.lower(), qso[k]) for k in qso)
+        if not self._qsoIsValid(qso):
+            return False
+
+        qso = self._normalizeQSO(qso)
+        pk = self._getQSOKey(qso)
+        qso['id_qso'] = pk
+        qso['id_log'] = str(logid)
+
+        try:
+            with self._conn:
+                self._doQuery("DELETE FROM qso WHERE (id_qso = :id_qso) AND (id_log = :id_log)", pk)
+                self._doQuery("INSERT INTO qso VALUES (:id_qso, :id_log, :call, :freq, :mode, :operator, :my_gridsquare)", qso)
+                self._updateAdifFields(qso)
+        except:
+            return False
+
+        return True
 
     def importFromAdif(self, filename, logid):
         """Import a log from an ADIF file and store QSOs in database.
@@ -135,9 +203,9 @@ class Hamlog():
             return False
 
         qsos = adif.adiParse(filename)
+
         for i in range(len(qsos)):
-            if self._qsoIsValid(qsos[i]):
-                self.addQSO(qsos[i], logid)
+            self.addOrUpdateQSO(qsos[i], logid)
         return True
 
     def exportToAdif(self, filename, logid):
@@ -150,27 +218,7 @@ class Hamlog():
         if not self._conn:
             return False
 
-        return True
-
-    def addQSO(self, qso, logid):
-        """Add or update a QSO to a log.
-        If QSO already exists, then update its properties.
-        @param qso: QSO object
-        @param logid: existing log id
-        @return: False if errors
-        FIXME TODO
-        """
-        # FIXME: check if QSO is valid (?)
-        qso = dict((k.lower(), qso[k]) for k in qso)
-        
-        pk = self._getQSOKey(qso)
-        if self._qsoExists(pk, logid):
-            # FIXME update QSO TODO
-#            print pk
-            pass
-        else:
-            # FIXME add new QSO
-            return self._doQuery("INSERT INTO qso (id_qso, id_log) VALUES (:pk, :logid)", {'pk': pk, 'logid': str(logid)})
+        return True 
 
     def deleteQSO(self, qsoid, logid):
         """Delete QSO from a log.
@@ -181,8 +229,6 @@ class Hamlog():
         sql = []
         sql.append("DELETE FROM qso WHERE (id_qso = :qsoid) AND (id_log = :logid)")
         sql.append("DELETE FROM qsoadif WHERE (id_qso = :qsoid) AND (id_log = :logid)")
-        sql.append("DELETE FROM qsoprops WHERE (id_qso = :qsoid) AND (id_log = :logid)")
-        sql.append("DELETE FROM qsl WHERE (id_qso = :qsoid) AND (id_log = :logid)")
         return self._doQuery(sql, {'qsoid': qsoid, 'logid': str(logid)})
 
     def addLog(self, name, description):
@@ -202,6 +248,4 @@ class Hamlog():
         sql.append("DELETE FROM logs WHERE id = :logid")
         sql.append("DELETE FROM qso WHERE id_log = :logid")
         sql.append("DELETE FROM qsoadif WHERE id_log = :logid")
-        sql.append("DELETE FROM qsoprops WHERE id_log = :logid")
-        sql.append("DELETE FROM qsl WHERE id_log = :logid")
         return self._doQuery(sql, {'logid': str(logid)})
